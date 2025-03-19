@@ -33,7 +33,7 @@ class GameController(object):
         self.background_flash = None
         self.clock = pygame.time.Clock()
         self.fruit = None
-        self.pause = Pause(True)
+        self.pause = Pause(False)
         self.level = 0
         self.lives = 5
         self.score = 0
@@ -111,11 +111,11 @@ class GameController(object):
         
 
     def update(self):
-        dt = self.clock.tick(30) / 1000.0
+        dt = self.clock.tick(30) / 200.0
         self.textgroup.update(dt)
         self.pellets.update(dt)
         if not self.pause.paused:
-            self.ghosts.update(dt)      
+            self.ghosts.update(dt)
             if self.fruit is not None:
                 self.fruit.update(dt)
             self.checkPelletEvents()
@@ -150,7 +150,7 @@ class GameController(object):
             elif event.type == KEYDOWN:
                 if event.key == K_SPACE:
                     if self.pacman.alive:
-                        self.pause.setPause(playerPaused=True)
+                        # self.pause.setPause(playerPaused=True)
                         if not self.pause.paused:
                             self.textgroup.hideText()
                             self.showEntities()
@@ -173,7 +173,7 @@ class GameController(object):
             if self.pellets.isEmpty():
                 self.flashBG = True
                 self.hideEntities()
-                self.pause.setPause(pauseTime=3, func=self.nextLevel)
+                # self.pause.setPause(pauseTime=3, func=self.nextLevel)
 
     def checkGhostEvents(self):
         for ghost in self.ghosts:
@@ -184,7 +184,8 @@ class GameController(object):
                     self.updateScore(ghost.points)                  
                     self.textgroup.addText(str(ghost.points), WHITE, ghost.position.x, ghost.position.y, 8, time=1)
                     self.ghosts.updatePoints()
-                    self.pause.setPause(pauseTime=1, func=self.showEntities)
+                    self.showEntities()
+                    # self.pause.setPause(pauseTime=1, func=self.showEntities)
                     ghost.startSpawn()
                     self.nodes.allowHomeAccess(ghost)
                 elif ghost.mode.current is not SPAWN:
@@ -195,9 +196,11 @@ class GameController(object):
                         self.ghosts.hide()
                         if self.lives <= 0:
                             self.textgroup.showText(GAMEOVERTXT)
-                            self.pause.setPause(pauseTime=3, func=self.restartGame)
+                            self.restartGame()
+                            # self.pause.setPause(pauseTime=3, func=self.restartGame)
                         else:
-                            self.pause.setPause(pauseTime=3, func=self.resetLevel)
+                            self.resetLevel()
+                            # self.pause.setPause(pauseTime=3, func=self.resetLevel)
     
     def checkFruitEvents(self):
         if self.pellets.numEaten == 50 or self.pellets.numEaten == 140:
@@ -230,14 +233,14 @@ class GameController(object):
     def nextLevel(self):
         self.showEntities()
         self.level += 1
-        self.pause.paused = True
+        self.pause.paused = False
         self.startGame()
         self.textgroup.updateLevel(self.level)
 
     def restartGame(self):
         self.lives = 5
         self.level = 0
-        self.pause.paused = True
+        self.pause.paused = False
         self.fruit = None
         self.startGame()
         self.score = 0
@@ -248,7 +251,7 @@ class GameController(object):
         self.fruitCaptured = []
 
     def resetLevel(self):
-        self.pause.paused = True
+        self.pause.paused = False
         self.pacman.reset()
         self.ghosts.reset()
         self.fruit = None
@@ -367,31 +370,9 @@ if __name__ == "__main__":
 
     pellet_list = [(pellet.position.x, pellet.position.y) for pellet in game.pellets.pelletList]
     env = PacManEnv(game, pellet_list)
+
     while True:
-        # print(game.pacman.position.x, game.pacman.position.y)
-        #
-        # print(game.ghosts.inky.position)
-        # print(game.ghosts.inky.mode.current)
-        #
-        # print(game.ghosts.blinky.position)
-        # print(game.ghosts.blinky.mode.current)
-        #
-        # print(game.ghosts.pinky.position)
-        # print(game.ghosts.pinky.mode.current)
-        #
-        # print(game.ghosts.clyde.position)
-        # print(game.ghosts.clyde.mode.current)
-        #
-        # print(game.lives)
-        # print(game.fruit is None)
-        # if(game.fruit is not None):
-        #     print(game.fruit.position)
+        env.step(3)
 
-        # pellets_left = [(pellet.position.x, pellet.position.y) for pellet in game.pellets.pelletList]
-        # print([1 if pellet in pellets_left else 0 for pellet in pellet_list])
-
-        env.step(1)
-        # game.update()
-
-
-
+        if game.lives == 0:
+            env.reset()
