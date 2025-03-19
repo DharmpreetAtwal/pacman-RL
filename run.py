@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 import numpy as np
 import pygame
 from gym.core import ObsType
+from pygame import Vector2
 from pygame.locals import *
 from constants import *
 from pacman import Pacman
@@ -281,21 +282,10 @@ class GameController(object):
 
 
 
-class Policy(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim):
-        super(Policy, self).__init__()
-        self.network = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
-            nn.Softmax(dim=-1)
-        )
-
 class PacManEnv(gym.Env):
-    def __init__(self, game):
+    def __init__(self, game, initial_pellets):
         self.game = game
+        self.initial_pellets = initial_pellets
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Dict({
             "pacman_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
@@ -320,40 +310,39 @@ class PacManEnv(gym.Env):
                                   np.array([1 for _ in game.pellets.pelletList]), dtype=np.int8),
         })
 
-    def reset(self):
-        self.game.restartGame()
-        self.game.resetLevel()
+    def _get_obs(self):
+        pellets_left = [(pellet.position.x, pellet.position.y) for pellet in self.game.pellets.pelletList]
+        fruit_pos = Vector2(-1, -1)
+        if self.game.fruit is not None:
+            fruit_pos = game.fruit.position
 
-class PacManEnv(gym.Env):
-    def __init__(self, game):
-        self.game = game
-        self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Dict({
-            "pacman_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
-            "pacman_lives": spaces.Discrete(6),
+        return {
+            "pacman_position": (self.game.pacman.position.x, self.game.pacman.position.y),
+            "pacman_lives": self.game.lives,
 
-            "inky_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
-            "inky_mode": spaces.Discrete(2),
+            "inky_position": (self.game.ghosts.inky.position.x, self.game.ghosts.inky.position.y),
+            "inky_mode": self.game.ghosts.inky.mode.current,
 
-            "blinky_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
-            "blinky_mode": spaces.Discrete(2),
+            "blinky_position": (self.game.ghosts.blinky.position.x, self.game.ghosts.blinky.position.y),
+            "blinky_mode": self.game.ghosts.blinky.mode.current,
 
-            "pinky_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
-            "pinky_mode": spaces.Discrete(2),
+            "pinky_position": (self.game.ghosts.pinky.position.x, self.game.ghosts.blinky.position.y),
+            "pinky_mode": self.game.ghosts.pinky.mode.current,
 
-            "clyde_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
-            "clyde_mode": spaces.Discrete(2),
+            "clyde_position": (self.game.ghosts.clyde.position.x, self.game.ghosts.clyde.position.y),
+            "clyde_mode": self.game.ghosts.clyde.mode.current,
 
-            "fruit_exists": spaces.Discrete(2),
-            "fruit_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
+            "fruit_exists": self.game.fruit is not None,
+            "fruit_position": (fruit_pos.x, fruit_pos.y),
 
-            "pellets": spaces.Box(np.array([0 for _ in game.pellets.pelletList]),
-                                  np.array([1 for _ in game.pellets.pelletList]), dtype=np.int8),
-        })
+            "pellets": [1 if pellet in pellets_left else 0 for pellet in self.initial_pellets],
+        }
 
     def reset(self):
         self.game.restartGame()
         self.game.resetLevel()
+
+        return self._get_obs()
 
     def step(self, action):
         action_event = None
@@ -370,18 +359,16 @@ class PacManEnv(gym.Env):
 
         pygame.event.post(action_event)
         self.game.update()
-
-
-
+        print(self._get_obs())
 
 if __name__ == "__main__":
     game = GameController()
     game.startGame()
 
     pellet_list = [(pellet.position.x, pellet.position.y) for pellet in game.pellets.pelletList]
-    env = PacManEnv(game)
+    env = PacManEnv(game, pellet_list)
     while True:
-        # print(game.pacman.position)
+        # print(game.pacman.position.x, game.pacman.position.y)
         #
         # print(game.ghosts.inky.position)
         # print(game.ghosts.inky.mode.current)
@@ -396,7 +383,7 @@ if __name__ == "__main__":
         # print(game.ghosts.clyde.mode.current)
         #
         # print(game.lives)
-        # print(game.fruit)
+        # print(game.fruit is None)
         # if(game.fruit is not None):
         #     print(game.fruit.position)
 
