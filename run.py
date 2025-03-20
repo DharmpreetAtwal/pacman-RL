@@ -447,3 +447,4 @@ if __name__ == "__main__":
 
         if game.lives == 0:
             env.reset()
+
