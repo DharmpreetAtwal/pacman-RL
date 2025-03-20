@@ -2,7 +2,6 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pygame
-from gym.core import ObsType
 from pygame import Vector2
 from pygame.locals import *
 from constants import *
@@ -111,7 +110,7 @@ class GameController(object):
         
 
     def update(self):
-        dt = self.clock.tick(30) / 200.0
+        dt = self.clock.tick(200) / 200.0
         self.textgroup.update(dt)
         self.pellets.update(dt)
         if not self.pause.paused:
@@ -320,26 +319,29 @@ class PacManEnv(gym.Env):
             fruit_pos = game.fruit.position
 
         return {
-            "pacman_position": (self.game.pacman.position.x, self.game.pacman.position.y),
+            "pacman_position": (int(self.game.pacman.position.x), int(self.game.pacman.position.y)),
             "pacman_lives": self.game.lives,
 
-            "inky_position": (self.game.ghosts.inky.position.x, self.game.ghosts.inky.position.y),
+            "inky_position": (int(self.game.ghosts.inky.position.x), int(self.game.ghosts.inky.position.y)),
             "inky_mode": self.game.ghosts.inky.mode.current,
 
-            "blinky_position": (self.game.ghosts.blinky.position.x, self.game.ghosts.blinky.position.y),
+            "blinky_position": (int(self.game.ghosts.blinky.position.x), int(self.game.ghosts.blinky.position.y)),
             "blinky_mode": self.game.ghosts.blinky.mode.current,
 
-            "pinky_position": (self.game.ghosts.pinky.position.x, self.game.ghosts.blinky.position.y),
+            "pinky_position": (int(self.game.ghosts.pinky.position.x), int(self.game.ghosts.blinky.position.y)),
             "pinky_mode": self.game.ghosts.pinky.mode.current,
 
-            "clyde_position": (self.game.ghosts.clyde.position.x, self.game.ghosts.clyde.position.y),
+            "clyde_position": (int(self.game.ghosts.clyde.position.x), int(self.game.ghosts.clyde.position.y)),
             "clyde_mode": self.game.ghosts.clyde.mode.current,
 
             "fruit_exists": self.game.fruit is not None,
-            "fruit_position": (fruit_pos.x, fruit_pos.y),
+            "fruit_position": (int(fruit_pos.x), int(fruit_pos.y)),
 
             "pellets": [1 if pellet in pellets_left else 0 for pellet in self.initial_pellets],
         }
+
+    def _calculate_rewards(self):
+        return self.game.score * pow(2, self.game.lives)
 
     def reset(self):
         self.game.restartGame()
@@ -360,9 +362,78 @@ class PacManEnv(gym.Env):
         else:
             raise NotImplementedError()
 
+        pre_action_reward = self._calculate_rewards()
+
+        # Take action, update
         pygame.event.post(action_event)
         self.game.update()
-        print(self._get_obs())
+
+        delta_reward = self._calculate_rewards() - pre_action_reward
+        done = len(self.game.pellets.pelletList) == 0 or self.game.lives == 0
+
+        # print(self._calculate_rewards(), delta_reward)
+
+        return self._get_obs(), delta_reward, done
+
+class Policy(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim=128):
+        super(Policy, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Softmax(dim=1)
+        )
+
+def train_policy(env, policy, num_episodes=100, lr=0.01):
+    optimizer = optim.Adam(policy.parameters(), lr=lr)
+
+    for episode in range(num_episodes):
+        state = env.reset()
+        log_probs = []
+        rewards = []
+        done = False
+
+        while not done:
+            state_tensor = torch.FloatTensor(state)
+            action_probs = policy(state_tensor)
+            m = torch.distributions.Categorical(action_probs)
+            action = m.sample()
+
+            log_prob = m.log_prob(action)
+            log_probs.append(log_prob)
+
+            state, reward, done = env.step(action.item())
+
+            rewards.append(reward)
+
+        returns = []
+        R = 0
+        gamma = 0.99
+        for r in reversed(rewards):
+            R = r + gamma * R
+            returns.insert(0, R)
+        returns = torch.tensor(returns)
+
+        # Normalize
+        returns = (returns - returns.mean()) / (returns.std() + 1e-9)
+
+        # Calculate loss
+        policy_loss = []
+        for log_prob, R in zip(log_probs, returns):
+            policy_loss.append(-log_prob * R)
+        policy_loss = torch.cat(policy_loss).sum()
+
+        optimizer.zero_grad()
+        policy_loss.backward()
+        optimizer.step()
+
+        if episode % 10 == 0:
+            print(f"Episode {episode}, Total Reward: {sum(rewards)}")
+
+
 
 if __name__ == "__main__":
     game = GameController()
@@ -372,7 +443,7 @@ if __name__ == "__main__":
     env = PacManEnv(game, pellet_list)
 
     while True:
-        env.step(3)
+        print(env.step(3))
 
         if game.lives == 0:
             env.reset()
