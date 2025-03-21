@@ -45,6 +45,8 @@ class GameController(object):
         self.fruitNode = None
         self.mazedata = MazeData()
 
+        self.done = False
+
     def setBackground(self):
         self.background_norm = pygame.surface.Surface(SCREENSIZE).convert()
         self.background_norm.fill(BLACK)
@@ -110,7 +112,7 @@ class GameController(object):
         
 
     def update(self):
-        dt = self.clock.tick(200) / 200.0
+        dt = self.clock.tick(200) / 100.0
         self.textgroup.update(dt)
         self.pellets.update(dt)
         if not self.pause.paused:
@@ -196,8 +198,10 @@ class GameController(object):
                         if self.lives <= 0:
                             self.textgroup.showText(GAMEOVERTXT)
                             self.restartGame()
+                            self.done = True
                             # self.pause.setPause(pauseTime=3, func=self.restartGame)
                         else:
+                            self.done = False
                             self.resetLevel()
                             # self.pause.setPause(pauseTime=3, func=self.resetLevel)
     
@@ -347,6 +351,8 @@ class PacManEnv(gym.Env):
         self.game.restartGame()
         self.game.resetLevel()
 
+        self.game.done = False
+
         return self._get_obs()
 
     def step(self, action):
@@ -369,9 +375,14 @@ class PacManEnv(gym.Env):
         self.game.update()
 
         delta_reward = self._calculate_rewards() - pre_action_reward
-        done = len(self.game.pellets.pelletList) == 0 or self.game.lives == 0
+        done = len(self.game.pellets.pelletList) == 0 or self.game.done
 
-        # print(self._calculate_rewards(), delta_reward)
+        if done:
+            self.game.done = False
+            delta_reward = 0
+
+        if delta_reward == 0:
+            delta_reward = -1
 
         return self._get_obs(), delta_reward, done
 
@@ -379,25 +390,87 @@ class Policy(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim=128):
         super(Policy, self).__init__()
         self.network = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, 64),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(64, 128),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.Softmax(dim=1)
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, output_dim)
         )
+
+    def forward(self, x):
+        logits = self.network(x)
+        return torch.softmax(logits, dim=-1)
+
+def state_to_features(state_dict, normalize=True):
+    # Define normalization constants
+    max_pos_x, max_pos_y = 512, 512  # Adjust based on game dimensions
+    max_lives = 5
+    max_mode = 1
+
+    # Initialize feature vector
+    features = []
+
+    # Process pacman position
+    pacman_pos = state_dict['pacman_position']
+    if normalize:
+        features.append(pacman_pos[0] / max_pos_x)
+        features.append(pacman_pos[1] / max_pos_y)
+    else:
+        features.append(pacman_pos[0])
+        features.append(pacman_pos[1])
+
+    # Process pacman lives
+    lives = state_dict['pacman_lives']
+    if normalize:
+        features.append(lives / max_lives)
+    else:
+        features.append(lives)
+
+    # Process ghost positions and modes
+    for ghost in ['inky', 'blinky', 'pinky', 'clyde']:
+        ghost_pos = state_dict[f'{ghost}_position']
+        if normalize:
+            features.append(ghost_pos[0] / max_pos_x)
+            features.append(ghost_pos[1] / max_pos_y)
+        else:
+            features.append(ghost_pos[0])
+            features.append(ghost_pos[1])
+
+        ghost_mode = state_dict[f'{ghost}_mode']
+        if normalize:
+            features.append(ghost_mode / max_mode)
+        else:
+            features.append(ghost_mode)
+
+    # Process fruit
+    features.append(1 if state_dict['fruit_exists'] else 0)
+    fruit_pos = state_dict['fruit_position']
+    if normalize:
+        features.append(fruit_pos[0] / max_pos_x)
+        features.append(fruit_pos[1] / max_pos_y)
+    else:
+        features.append(fruit_pos[0])
+        features.append(fruit_pos[1])
+
+    features.extend(state_dict['pellets'])
+
+    return features
 
 def train_policy(env, policy, num_episodes=100, lr=0.01):
     optimizer = optim.Adam(policy.parameters(), lr=lr)
 
     for episode in range(num_episodes):
-        state = env.reset()
+        state_dict = env.reset()
+        state = state_to_features(state_dict)
+
         log_probs = []
         rewards = []
         done = False
 
         while not done:
-            state_tensor = torch.FloatTensor(state)
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
             action_probs = policy(state_tensor)
             m = torch.distributions.Categorical(action_probs)
             action = m.sample()
@@ -405,9 +478,13 @@ def train_policy(env, policy, num_episodes=100, lr=0.01):
             log_prob = m.log_prob(action)
             log_probs.append(log_prob)
 
-            state, reward, done = env.step(action.item())
+            item = action.item()
+            state_dict, reward, done = env.step(item)
+            state = state_to_features(state_dict)
 
             rewards.append(reward)
+
+        env.game.done = False
 
         returns = []
         R = 0
@@ -430,8 +507,9 @@ def train_policy(env, policy, num_episodes=100, lr=0.01):
         policy_loss.backward()
         optimizer.step()
 
-        if episode % 10 == 0:
-            print(f"Episode {episode}, Total Reward: {sum(rewards)}")
+        print(rewards)
+        # if episode % 10 == 0:
+        print(f"Episode {episode}, Total Reward: {sum(rewards)}")
 
 
 
@@ -442,9 +520,17 @@ if __name__ == "__main__":
     pellet_list = [(pellet.position.x, pellet.position.y) for pellet in game.pellets.pelletList]
     env = PacManEnv(game, pellet_list)
 
-    while True:
-        print(env.step(3))
+    state_dict = env.reset()
+    input_dim = len(state_to_features(state_dict))
+    output_dim = env.action_space.n
 
-        if game.lives == 0:
-            env.reset()
+    policy = Policy(input_dim, output_dim)
+    train_policy(env, policy)
+
+    # print(env.observation_space)
+    # while True:
+    #     print(env.step(3))
+    #
+    #     if game.lives == 0:
+    #         env.reset()
 
