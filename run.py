@@ -1,5 +1,6 @@
 from typing import Optional, Tuple
 
+import math
 import numpy as np
 import pygame
 from pygame import Vector2
@@ -34,7 +35,9 @@ class GameController(object):
         self.fruit = None
         self.pause = Pause(False)
         self.level = 0
-        self.lives = 5
+        #self.lives = 5
+        #Try with 1 life
+        self.lives = 1
         self.score = 0
         self.textgroup = TextGroup()
         self.lifesprites = LifeSprites(self.lives)
@@ -345,7 +348,12 @@ class PacManEnv(gym.Env):
         }
 
     def _calculate_rewards(self):
-        return self.game.score * pow(2, self.game.lives)
+        pac2inky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.inky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.inky.position.y))**2))
+        pac2blinky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.blinky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.blinky.position.y))**2))
+        pac2pinky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.pinky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.pinky.position.y))**2))
+        pac2clyde=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.clyde.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.clyde.position.y))**2))
+        return pow(self.game.score, 2)-pac2inky-pac2blinky-pac2pinky-pac2clyde 
+        #* pow(2, self.game.lives)
 
     def reset(self):
         self.game.restartGame()
@@ -369,6 +377,9 @@ class PacManEnv(gym.Env):
             raise NotImplementedError()
 
         pre_action_reward = self._calculate_rewards()
+        pre_action_lives=self.game.lives
+        prevPellets=len(self.game.pellets.pelletList)
+
 
         # Take action, update
         pygame.event.post(action_event)
@@ -381,8 +392,11 @@ class PacManEnv(gym.Env):
             self.game.done = False
             delta_reward = 0
 
-        if delta_reward == 0:
-            delta_reward = -1
+        if len(self.game.pellets.pelletList)==prevPellets and delta_reward<0:
+            delta_reward = delta_reward*5
+        
+        if pre_action_lives < self.game.lives:
+            delta_reward = -10000
 
         return self._get_obs(), delta_reward, done
 
@@ -458,7 +472,7 @@ def state_to_features(state_dict, normalize=True):
 
     return features
 
-def train_policy(env, policy, num_episodes=100, lr=0.01):
+def train_policy(env, policy, num_episodes=1000, lr=0.01):
     optimizer = optim.Adam(policy.parameters(), lr=lr)
 
     for episode in range(num_episodes):
