@@ -1,9 +1,14 @@
+from random import random
 from typing import Optional, Tuple
 
+import math
+import os
 import numpy as np
 import pygame
 from pygame import Vector2
 from pygame.locals import *
+from sympy.abc import epsilon
+
 from constants import *
 from pacman import Pacman
 from nodes import NodeGroup
@@ -16,6 +21,7 @@ from sprites import LifeSprites
 from sprites import MazeSprites
 from mazedata import MazeData
 
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -34,6 +40,8 @@ class GameController(object):
         self.fruit = None
         self.pause = Pause(False)
         self.level = 0
+        #self.lives = 5
+        #Try with 1 life
         self.lives = 5
         self.score = 0
         self.textgroup = TextGroup()
@@ -46,6 +54,8 @@ class GameController(object):
         self.mazedata = MazeData()
 
         self.done = False
+        self.power_left = 4
+        self.ghosts_eaten = 0
 
     def setBackground(self):
         self.background_norm = pygame.surface.Surface(SCREENSIZE).convert()
@@ -57,7 +67,7 @@ class GameController(object):
         self.flashBG = False
         self.background = self.background_norm
 
-    def startGame(self):      
+    def startGame(self):
         self.mazedata.loadMaze(self.level)
         self.mazesprites = MazeSprites(self.mazedata.obj.name+".txt", self.mazedata.obj.name+"_rotation.txt")
         self.setBackground()
@@ -80,7 +90,7 @@ class GameController(object):
         self.ghosts.clyde.startNode.denyAccess(LEFT, self.ghosts.clyde)
         self.mazedata.obj.denyGhostsAccess(self.ghosts, self.nodes)
 
-    def startGame_old(self):      
+    def startGame_old(self):
         self.mazedata.loadMaze(self.level)#######
         self.mazesprites = MazeSprites("maze1.txt", "maze1_rotation.txt")
         self.setBackground()
@@ -109,7 +119,7 @@ class GameController(object):
         self.nodes.denyAccessList(12, 26, UP, self.ghosts)
         self.nodes.denyAccessList(15, 26, UP, self.ghosts)
 
-        
+
 
     def update(self):
         dt = self.clock.tick(200) / 100.0
@@ -171,6 +181,7 @@ class GameController(object):
             self.pellets.pelletList.remove(pellet)
             if pellet.name == POWERPELLET:
                 self.ghosts.startFreight()
+                self.power_left -= 1
             if self.pellets.isEmpty():
                 self.flashBG = True
                 self.hideEntities()
@@ -180,9 +191,11 @@ class GameController(object):
         for ghost in self.ghosts:
             if self.pacman.collideGhost(ghost):
                 if ghost.mode.current is FREIGHT:
+                    self.ghosts_eaten += 1
+
                     self.pacman.visible = False
                     ghost.visible = False
-                    self.updateScore(ghost.points)                  
+                    self.updateScore(ghost.points)
                     self.textgroup.addText(str(ghost.points), WHITE, ghost.position.x, ghost.position.y, 8, time=1)
                     self.ghosts.updatePoints()
                     self.showEntities()
@@ -193,7 +206,7 @@ class GameController(object):
                     if self.pacman.alive:
                         self.lives -=  1
                         self.lifesprites.removeImage()
-                        self.pacman.die()               
+                        self.pacman.die()
                         self.ghosts.hide()
                         if self.lives <= 0:
                             self.textgroup.showText(GAMEOVERTXT)
@@ -204,7 +217,7 @@ class GameController(object):
                             self.done = False
                             self.resetLevel()
                             # self.pause.setPause(pauseTime=3, func=self.resetLevel)
-    
+
     def checkFruitEvents(self):
         if self.pellets.numEaten == 50 or self.pellets.numEaten == 140:
             if self.fruit is None:
@@ -293,6 +306,7 @@ class PacManEnv(gym.Env):
         self.game = game
         self.initial_pellets = initial_pellets
         self.action_space = spaces.Discrete(4)
+        self.last_eaten = -1
         self.observation_space = spaces.Dict({
             "pacman_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
             "pacman_lives": spaces.Discrete(6),
@@ -318,9 +332,9 @@ class PacManEnv(gym.Env):
 
     def _get_obs(self):
         pellets_left = [(pellet.position.x, pellet.position.y) for pellet in self.game.pellets.pelletList]
-        fruit_pos = Vector2(-1, -1)
-        if self.game.fruit is not None:
-            fruit_pos = game.fruit.position
+        # fruit_pos = Vector2(-1, -1)
+        # if self.game.fruit is not None:
+        #     fruit_pos = game.fruit.position
 
         return {
             "pacman_position": (int(self.game.pacman.position.x), int(self.game.pacman.position.y)),
@@ -338,20 +352,33 @@ class PacManEnv(gym.Env):
             "clyde_position": (int(self.game.ghosts.clyde.position.x), int(self.game.ghosts.clyde.position.y)),
             "clyde_mode": self.game.ghosts.clyde.mode.current,
 
-            "fruit_exists": self.game.fruit is not None,
-            "fruit_position": (int(fruit_pos.x), int(fruit_pos.y)),
+            # "fruit_exists": self.game.fruit is not None,
+            # "fruit_position": (int(fruit_pos.x), int(fruit_pos.y)),
 
             "pellets": [1 if pellet in pellets_left else 0 for pellet in self.initial_pellets],
         }
 
+    # def _calculate_rewards(self):
+    #     return (1000 * self.game.score) + (5000 * self.game.lives)
+
     def _calculate_rewards(self):
-        return self.game.score * pow(2, self.game.lives)
+        pac2inky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.inky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.inky.position.y))**2))
+        pac2blinky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.blinky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.blinky.position.y))**2))
+        pac2pinky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.pinky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.pinky.position.y))**2))
+        pac2clyde=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.clyde.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.clyde.position.y))**2))
+        # return (100 * self.game.score) - pac2inky - pac2blinky - pac2pinky - pac2clyde
+        return (1000 * self.game.score) + (5000 * self.game.lives) #- 100 * int(pac2inky - pac2blinky - pac2pinky - pac2clyde)
+        # * pow(2, self.game.lives)
 
     def reset(self):
         self.game.restartGame()
         self.game.resetLevel()
 
         self.game.done = False
+        self.game.power_left = 4
+        self.game.ghosts_eaten = 0
+
+        self.last_eaten = -1
 
         return self._get_obs()
 
@@ -370,6 +397,7 @@ class PacManEnv(gym.Env):
 
         pre_action_reward = self._calculate_rewards()
 
+
         # Take action, update
         pygame.event.post(action_event)
         self.game.update()
@@ -382,7 +410,12 @@ class PacManEnv(gym.Env):
             delta_reward = 0
 
         if delta_reward == 0:
-            delta_reward = -1
+            delta_reward = self.last_eaten
+            self.last_eaten -= 20
+        elif delta_reward == -5000:
+            self.last_eaten -= 20
+        else:
+            self.last_eaten = -1
 
         return self._get_obs(), delta_reward, done
 
@@ -395,6 +428,10 @@ class Policy(nn.Module):
             nn.Linear(64, 128),
             nn.ReLU(),
             nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
             nn.ReLU(),
             nn.Linear(256, output_dim)
         )
@@ -445,14 +482,14 @@ def state_to_features(state_dict, normalize=True):
             features.append(ghost_mode)
 
     # Process fruit
-    features.append(1 if state_dict['fruit_exists'] else 0)
-    fruit_pos = state_dict['fruit_position']
-    if normalize:
-        features.append(fruit_pos[0] / max_pos_x)
-        features.append(fruit_pos[1] / max_pos_y)
-    else:
-        features.append(fruit_pos[0])
-        features.append(fruit_pos[1])
+    # features.append(1 if state_dict['fruit_exists'] else 0)
+    # fruit_pos = state_dict['fruit_position']
+    # if normalize:
+    #     features.append(fruit_pos[0] / max_pos_x)
+    #     features.append(fruit_pos[1] / max_pos_y)
+    # else:
+    #     features.append(fruit_pos[0])
+    #     features.append(fruit_pos[1])
 
     features.extend(state_dict['pellets'])
 
@@ -469,7 +506,11 @@ def train_policy(env, policy, num_episodes=100, lr=0.01):
         rewards = []
         done = False
 
+        epsilon = 0.5
+        epsilon_decay = epsilon
+
         while not done:
+            epsilon_decay = epsilon - (epsilon * (episode / num_episodes))
             state_tensor = torch.FloatTensor(state).unsqueeze(0)
             action_probs = policy(state_tensor)
             m = torch.distributions.Categorical(action_probs)
@@ -479,6 +520,11 @@ def train_policy(env, policy, num_episodes=100, lr=0.01):
             log_probs.append(log_prob)
 
             item = action.item()
+
+            rnd = random.random()
+            if rnd < epsilon_decay:
+                item = random.randint(0, 3)
+
             state_dict, reward, done = env.step(item)
             state = state_to_features(state_dict)
 
@@ -507,7 +553,7 @@ def train_policy(env, policy, num_episodes=100, lr=0.01):
         policy_loss.backward()
         optimizer.step()
 
-        print(rewards)
+        print(epsilon_decay, rewards)
         # if episode % 10 == 0:
         print(f"Episode {episode}, Total Reward: {sum(rewards)}")
 
@@ -525,12 +571,9 @@ if __name__ == "__main__":
     output_dim = env.action_space.n
 
     policy = Policy(input_dim, output_dim)
+
+    if os.path.exists("./CPS824.pt"):
+        policy.load_state_dict(torch.load("./CPS824.pt", weights_only=True))
     train_policy(env, policy)
 
-    # print(env.observation_space)
-    # while True:
-    #     print(env.step(3))
-    #
-    #     if game.lives == 0:
-    #         env.reset()
-
+    torch.save(policy.state_dict(), './CPS824.pt')
