@@ -378,7 +378,7 @@ class PacManEnv(gym.Env):
             raise NotImplementedError()
 
         pre_action_reward = self._calculate_rewards()
-
+        lives_before = game.lives
 
         # Take action, update
         pygame.event.post(action_event)
@@ -386,6 +386,7 @@ class PacManEnv(gym.Env):
 
         delta_reward = self._calculate_rewards() - pre_action_reward
         done = len(self.game.pellets.pelletList) == 0 or self.game.done
+        lives_after  = game.lives
 
         if done:
             self.game.done = False
@@ -394,10 +395,12 @@ class PacManEnv(gym.Env):
         if delta_reward == 0:
             delta_reward = self.last_eaten
             self.last_eaten -= 20
-        elif delta_reward == -500000:
+        elif lives_before - lives_after != 0:
             self.last_eaten -= 20
         else:
             self.last_eaten = -1
+
+        # print(delta_reward)
 
         return self._get_obs(), delta_reward, done
 
@@ -501,7 +504,7 @@ def state_to_features(state_dict, normalize=True):
     return features
 
 
-def train_policy(env, policy, num_episodes=500, lr=0.001):
+def train_policy(env, policy, num_episodes=100, lr=0.001):
     target_network = Policy(len(state_to_features(env.reset())), env.action_space.n)
     target_network.load_state_dict(policy.state_dict())
     replay_buffer = ReplayBuffer()
@@ -568,8 +571,6 @@ def train_policy(env, policy, num_episodes=500, lr=0.001):
             target_network.load_state_dict(policy.state_dict())
 
         print(f"Episode {episode}, Total Reward: {total_reward}, Epsilon: {epsilon:.2f}")
-
-
 
 if __name__ == "__main__":
     game = GameController()
