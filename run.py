@@ -122,7 +122,7 @@ class GameController(object):
 
 
     def update(self):
-        dt = self.clock.tick(200) / 100.0
+        dt = self.clock.tick(300) / 200.0
         self.textgroup.update(dt)
         self.pellets.update(dt)
         if not self.pause.paused:
@@ -323,18 +323,12 @@ class PacManEnv(gym.Env):
             "clyde_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
             "clyde_mode": spaces.Discrete(2),
 
-            "fruit_exists": spaces.Discrete(2),
-            "fruit_position": spaces.Box(np.array([16, 64]), np.array([512, 512]), dtype=np.int16),
-
             "pellets": spaces.Box(np.array([0 for _ in game.pellets.pelletList]),
                                   np.array([1 for _ in game.pellets.pelletList]), dtype=np.int8),
         })
 
     def _get_obs(self):
         pellets_left = [(pellet.position.x, pellet.position.y) for pellet in self.game.pellets.pelletList]
-        # fruit_pos = Vector2(-1, -1)
-        # if self.game.fruit is not None:
-        #     fruit_pos = game.fruit.position
 
         return {
             "pacman_position": (int(self.game.pacman.position.x), int(self.game.pacman.position.y)),
@@ -352,23 +346,11 @@ class PacManEnv(gym.Env):
             "clyde_position": (int(self.game.ghosts.clyde.position.x), int(self.game.ghosts.clyde.position.y)),
             "clyde_mode": self.game.ghosts.clyde.mode.current,
 
-            # "fruit_exists": self.game.fruit is not None,
-            # "fruit_position": (int(fruit_pos.x), int(fruit_pos.y)),
-
             "pellets": [1 if pellet in pellets_left else 0 for pellet in self.initial_pellets],
         }
 
-    # def _calculate_rewards(self):
-    #     return (1000 * self.game.score) + (5000 * self.game.lives)
-
     def _calculate_rewards(self):
-        pac2inky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.inky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.inky.position.y))**2))
-        pac2blinky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.blinky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.blinky.position.y))**2))
-        pac2pinky=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.pinky.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.pinky.position.y))**2))
-        pac2clyde=math.sqrt(((int(self.game.pacman.position.x)-int(self.game.ghosts.clyde.position.x))**2)+((int(self.game.pacman.position.y)-int(self.game.ghosts.clyde.position.y))**2))
-        # return (100 * self.game.score) - pac2inky - pac2blinky - pac2pinky - pac2clyde
-        return (1000 * self.game.score) + (5000 * self.game.lives) #- 100 * int(pac2inky - pac2blinky - pac2pinky - pac2clyde)
-        # * pow(2, self.game.lives)
+        return (2000 * self.game.score) - (10000 * pow(2, 8 - self.game.lives))
 
     def reset(self):
         self.game.restartGame()
@@ -412,7 +394,7 @@ class PacManEnv(gym.Env):
         if delta_reward == 0:
             delta_reward = self.last_eaten
             self.last_eaten -= 20
-        elif delta_reward == -5000:
+        elif delta_reward == -500000:
             self.last_eaten -= 20
         else:
             self.last_eaten = -1
@@ -423,22 +405,55 @@ class Policy(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim=128):
         super(Policy, self).__init__()
         self.network = nn.Sequential(
-            nn.Linear(input_dim, 64),
+            nn.Linear(input_dim, 512),
+            nn.LayerNorm(512),
             nn.ReLU(),
-            nn.Linear(64, 128),
+
+            nn.Linear(512, 1024),
+            nn.LayerNorm(1024),
             nn.ReLU(),
-            nn.Linear(128, 256),
+            nn.Dropout(0.2),
+
+            nn.Linear(1024, 512),
+            nn.LayerNorm(512),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Dropout(0.2),
+
+            nn.Linear(512, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
+
             nn.Linear(256, output_dim)
         )
 
     def forward(self, x):
-        logits = self.network(x)
-        return torch.softmax(logits, dim=-1)
+        return self.network(x)  # Returns Q-values directly
+
+class ReplayBuffer:
+    def __init__(self, capacity=10000):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = zip(*batch)
+        return (
+            torch.FloatTensor(np.array(state)),
+            torch.LongTensor(np.array(action)),
+            torch.FloatTensor(np.array(reward)),
+            torch.FloatTensor(np.array(next_state)),
+            torch.FloatTensor(np.array(done))
+        )
+
+    def __len__(self):
+        return len(self.buffer)
 
 def state_to_features(state_dict, normalize=True):
     # Define normalization constants
@@ -481,81 +496,78 @@ def state_to_features(state_dict, normalize=True):
         else:
             features.append(ghost_mode)
 
-    # Process fruit
-    # features.append(1 if state_dict['fruit_exists'] else 0)
-    # fruit_pos = state_dict['fruit_position']
-    # if normalize:
-    #     features.append(fruit_pos[0] / max_pos_x)
-    #     features.append(fruit_pos[1] / max_pos_y)
-    # else:
-    #     features.append(fruit_pos[0])
-    #     features.append(fruit_pos[1])
-
     features.extend(state_dict['pellets'])
 
     return features
 
-def train_policy(env, policy, num_episodes=100, lr=0.01):
+
+def train_policy(env, policy, num_episodes=500, lr=0.001):
+    target_network = Policy(len(state_to_features(env.reset())), env.action_space.n)
+    target_network.load_state_dict(policy.state_dict())
+    replay_buffer = ReplayBuffer()
+
     optimizer = optim.Adam(policy.parameters(), lr=lr)
+
+    epsilon = 0.2
+
+    gamma = 0.99
+    batch_size = 64
 
     for episode in range(num_episodes):
         state_dict = env.reset()
         state = state_to_features(state_dict)
 
-        log_probs = []
-        rewards = []
+        total_reward = 0
         done = False
 
-        epsilon = 0.5
-        epsilon_decay = epsilon
-
         while not done:
-            epsilon_decay = epsilon - (epsilon * (episode / num_episodes))
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
-            action_probs = policy(state_tensor)
-            m = torch.distributions.Categorical(action_probs)
-            action = m.sample()
+            if random.random() < epsilon:
+                action = random.randint(0, env.action_space.n - 1)
+            else:
+                with torch.no_grad():
+                    state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                    q_values = policy(state_tensor)
+                    action = q_values.max(1)[1].item()
 
-            log_prob = m.log_prob(action)
-            log_probs.append(log_prob)
+            # Take action
+            next_state_dict, reward, done = env.step(action)
+            next_state = state_to_features(next_state_dict)
 
-            item = action.item()
+            total_reward += reward
 
-            rnd = random.random()
-            if rnd < epsilon_decay:
-                item = random.randint(0, 3)
+            # Store in replay buffer
+            replay_buffer.push(state, action, reward / 1000.0, next_state, int(done))
 
-            state_dict, reward, done = env.step(item)
-            state = state_to_features(state_dict)
+            # next state
+            state = next_state
 
-            rewards.append(reward)
+            # if we have enough samples, train with replay buffer
+            if len(replay_buffer) > batch_size:
+                # Sample from replay buffer
+                batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = replay_buffer.sample(
+                    batch_size)
 
-        env.game.done = False
+                # Compute Q values
+                current_q = policy(batch_states).gather(1, batch_actions.unsqueeze(1)).squeeze(1)
 
-        returns = []
-        R = 0
-        gamma = 0.99
-        for r in reversed(rewards):
-            R = r + gamma * R
-            returns.insert(0, R)
-        returns = torch.tensor(returns)
+                # Compute target Q values
+                with torch.no_grad():
+                    next_q = target_network(batch_next_states).max(1)[0]
+                    target_q = batch_rewards + gamma * next_q * (1 - batch_dones)
 
-        # Normalize
-        returns = (returns - returns.mean()) / (returns.std() + 1e-9)
+                # Compute loss
+                loss = nn.MSELoss()(current_q, target_q)
 
-        # Calculate loss
-        policy_loss = []
-        for log_prob, R in zip(log_probs, returns):
-            policy_loss.append(-log_prob * R)
-        policy_loss = torch.cat(policy_loss).sum()
+                # Optimize the model
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-        optimizer.zero_grad()
-        policy_loss.backward()
-        optimizer.step()
+        # Update target network every few episodes
+        if episode % 10 == 0:
+            target_network.load_state_dict(policy.state_dict())
 
-        print(epsilon_decay, rewards)
-        # if episode % 10 == 0:
-        print(f"Episode {episode}, Total Reward: {sum(rewards)}")
+        print(f"Episode {episode}, Total Reward: {total_reward}, Epsilon: {epsilon:.2f}")
 
 
 
