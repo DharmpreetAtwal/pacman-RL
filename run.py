@@ -123,7 +123,7 @@ class GameController(object):
 
 
     def update(self):
-        dt = self.clock.tick(60) / 600.0
+        dt = self.clock.tick(60) / 200.0
         self.textgroup.update(dt)
         self.pellets.update(dt)
         if not self.pause.paused:

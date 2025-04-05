@@ -11,11 +11,6 @@ import gym
 
 from dqn import state_to_features
 
-# Environment setup
-# env = gym.make('CartPole-v1')
-# state_size = env.observation_space.shape[0]
-# action_size = env.action_space.n
-
 # Hyperparameters
 gamma = 0.99  # Discount factor
 lr_actor = 0.001  # Actor learning rate
@@ -24,22 +19,44 @@ clip_ratio = 0.2  # PPO clip ratio
 epochs = 10  # Number of optimization epochs
 batch_size = 64  # Batch size for optimization
 
-
 # Actor and Critic networks
 class ActorCritic(nn.Module):
     def __init__(self, state_size, action_size):
         super(ActorCritic, self).__init__()
-        self.dense1 = nn.Linear(state_size, 64)
-        self.policy_logits = nn.Linear(64, action_size)
-        self.dense2 = nn.Linear(64, 64)
-        self.value = nn.Linear(64, 1)
+
+        self.shared_input = nn.Linear(state_size, 512)
+
+        self.actor_1 = nn.Linear(512, 1024)
+        self.actor_2 = nn.Linear(1024, 2048)
+        self.actor_3 = nn.Linear(2048, 2048)
+        self.policy_logits = nn.Linear(2048, action_size)
+
+        self.critic_1 = nn.Linear(512, 1024)
+        self.critic_2 = nn.Linear(1024, 2048)
+        self.critic_3 = nn.Linear(2048, 2048)
+        self.value = nn.Linear(2048, 1)
+
+        self.dropout = nn.Dropout(p=0.2)
+
 
     def forward(self, state):
-        x = F.relu(self.dense1(state))
-        logits = self.policy_logits(x)
-        value = self.value(x)
-        return logits, value
+        x = F.relu(self.shared_input(state))
 
+        a = F.relu(self.actor_1(x))
+        a = self.dropout(a)
+        a = F.relu(self.actor_2(a))
+        a = self.dropout(a)
+        a = F.relu(self.actor_3(a))
+        logits = self.policy_logits(a)
+
+        c = F.relu(self.critic_1(x))
+        c = self.dropout(c)
+        c = F.relu(self.critic_2(c))
+        c = self.dropout(c)
+        c = F.relu(self.critic_3(c))
+        value = self.value(c)
+
+        return logits, value
 
 # PPO algorithm
 def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actions, returns):
@@ -85,15 +102,15 @@ def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actio
     return loss
 
 
-def train_policy_ppo(env, max_episodes=30):
+def train_policy_ppo(env, max_episodes=300):
     # Initialize actor-critic model and optimizer
     state_dict = env.reset()
     state = state_to_features(state_dict)
     model = ActorCritic(len(state), 4)
     optimizer = optim.Adam(model.parameters(), lr=lr_actor)
 
-    # if os.path.exists("./test.pt"):
-    #     model.load_state_dict(torch.load("./CPS824.pt", weights_only=True))
+    if os.path.exists("./test.pt"):
+        model.load_state_dict(torch.load("./test.pt", weights_only=True))
 
     for episode in range(max_episodes):
         states, actions, rewards, values, returns = [], [], [], [], []
@@ -121,6 +138,8 @@ def train_policy_ppo(env, max_episodes=30):
             state = state_to_features(state_dict)
 
             if done:
+                print(sum(rewards), rewards)
+
                 # Calculate returns
                 returns_batch = []
                 discounted_sum = 0

@@ -1,3 +1,4 @@
+import math
 import os
 import random
 
@@ -44,35 +45,33 @@ class PacManEnv(gym.Env):
         })
 
     def _get_obs(self):
-        # pellet_surrounding = []
-        # pacman_pos = (self.game.pacman.position.x, self.game.pacman.position.y)
-        #
-        # for pellet in self.game.pellets.pelletList:
-        #     dist = math.sqrt(math.pow(pellet.position.x - pacman_pos[0], 2) +
-        #                      math.pow(pellet.position.y - pacman_pos[1], 2))
-        #     if dist <= 32:
-        #         pellet_surrounding.append((pellet.position.x, pellet.position.y))
-        #
-        # pellet_above = 0
-        # pellet_right = 0
-        # pellet_left = 0
-        # pellet_bottom = 0
+        pellet_surrounding = []
+        pacman_pos = (self.game.pacman.position.x, self.game.pacman.position.y)
 
-        # for pellet in pellet_surrounding:
-        #     if pellet[1] < pacman_pos[1]:
-        #         pellet_above = 1
-        #     elif pellet[1] > pacman_pos[1]:
-        #         pellet_bottom = 1
-        #     elif pellet[0] < pacman_pos[0]:
-        #         pellet_left = 1
-        #     elif pellet[0] > pacman_pos[0]:
-        #         pellet_right = 1
+        for pellet in self.game.pellets.pelletList:
+            dist = math.sqrt(math.pow(pellet.position.x - pacman_pos[0], 2) +
+                             math.pow(pellet.position.y - pacman_pos[1], 2))
+            if dist <= 32:
+                pellet_surrounding.append((pellet.position.x, pellet.position.y))
 
-        # print([pellet_above, pellet_right, pellet_bottom, pellet_left])
+        pellet_above = 0
+        pellet_right = 0
+        pellet_left = 0
+        pellet_bottom = 0
+
+        for pellet in pellet_surrounding:
+            if pellet[1] < pacman_pos[1]:
+                pellet_above = 1
+            elif pellet[1] > pacman_pos[1]:
+                pellet_bottom = 1
+            elif pellet[0] < pacman_pos[0]:
+                pellet_left = 1
+            elif pellet[0] > pacman_pos[0]:
+                pellet_right = 1
+
 
         return {
             "pacman_position": (int(self.game.pacman.position.x), int(self.game.pacman.position.y)),
-            # "pacman_lives": self.game.lives,
 
             "inky_position": (int(self.game.ghosts.inky.position.x), int(self.game.ghosts.inky.position.y)),
             "inky_mode": self.game.ghosts.inky.mode.current,
@@ -86,16 +85,20 @@ class PacManEnv(gym.Env):
             "clyde_position": (int(self.game.ghosts.clyde.position.x), int(self.game.ghosts.clyde.position.y)),
             "clyde_mode": self.game.ghosts.clyde.mode.current,
 
-            # "pellet_above": pellet_above,
-            # "pellet_right": pellet_right,
-            # "pellet_left": pellet_left,
-            # "pellet_bottom": pellet_bottom,
+            "pellet_above": pellet_above,
+            "pellet_right": pellet_right,
+            "pellet_left": pellet_left,
+            "pellet_bottom": pellet_bottom,
 
             # "pellets": [1 if pellet in pellets_left else 0 for pellet in self.initial_pellets],
         }
 
     def _calculate_rewards(self):
-        return (5000 * (self.post_score - self.pre_score)) - (9000 * (self.post_lives - self.pre_lives)) + 10
+        reward = (10000 * (self.post_score - self.pre_score)) + 1000
+        if self.game.done:
+            reward = -2000 * (self.pre_pellets * 10)
+
+        return reward
 
     def reset(self):
         self.game.restartGame()
@@ -123,15 +126,14 @@ class PacManEnv(gym.Env):
             raise NotImplementedError()
 
 
-        self.pre_score = game.score
-        self.pre_lives = game.lives
+        self.pre_score = self.game.score
+        self.pre_pellets = len(self.game.pellets.pelletList)
 
         # Take action, update
         pygame.event.post(action_event)
         self.game.update()
 
-        self.post_score = game.score
-        self.post_lives = game.lives
+        self.post_score = self.game.score
 
         reward = self._calculate_rewards()
         done = len(self.game.pellets.pelletList) == 0 or self.game.done
