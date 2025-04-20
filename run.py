@@ -41,9 +41,8 @@ class GameController(object):
         self.fruit = None
         self.pause = Pause(False)
         self.level = 0
-        #self.lives = 5
         #Try with 1 life
-        self.lives = 1
+        self.lives = 5
         self.score = 0
         self.textgroup = TextGroup()
         self.lifesprites = LifeSprites(self.lives)
@@ -254,7 +253,7 @@ class GameController(object):
         self.textgroup.updateLevel(self.level)
 
     def restartGame(self):
-        self.lives = 1
+        self.lives = 5
         self.level = 0
         self.pause.paused = False
         self.fruit = None
@@ -266,9 +265,13 @@ class GameController(object):
         self.lifesprites.resetLives(self.lives)
         self.fruitCaptured = []
 
+        start = random.choice(list(self.nodes.nodesLUT.keys()))
+        self.pacman.startNode = self.nodes.nodesLUT[start]
+
     def resetLevel(self):
         self.pause.paused = False
         self.pacman.reset()
+
         self.ghosts.reset()
         self.fruit = None
         self.textgroup.showText(READYTXT)

@@ -97,6 +97,7 @@ class Entity(object):
         return directions[index]
 
     def setStartNode(self, node):
+
         self.node = node
         self.startNode = node
         self.target = node

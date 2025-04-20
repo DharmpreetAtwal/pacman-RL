@@ -10,6 +10,7 @@ from gym.vector.utils import spaces
 from pygame import KEYDOWN, K_UP, K_RIGHT, K_DOWN, K_LEFT
 
 from dqn import train_policy_dqn, state_to_features, Policy
+from pacman import Pacman
 from ppo import train_policy_ppo
 from run import GameController
 
@@ -20,6 +21,9 @@ class PacManEnv(gym.Env):
         self.pre_lives = None
         self.post_score = None
         self.pre_score = None
+
+        self.live_reward = 10000
+
         self.game = game
         self.initial_pellets = initial_pellets
         self.action_space = spaces.Discrete(4)
@@ -69,9 +73,9 @@ class PacManEnv(gym.Env):
             elif pellet[0] > pacman_pos[0]:
                 pellet_right = 1
 
-
         return {
             "pacman_position": (int(self.game.pacman.position.x), int(self.game.pacman.position.y)),
+            "pacman_lives": self.game.lives,
 
             "inky_position": (int(self.game.ghosts.inky.position.x), int(self.game.ghosts.inky.position.y)),
             "inky_mode": self.game.ghosts.inky.mode.current,
@@ -89,14 +93,22 @@ class PacManEnv(gym.Env):
             "pellet_right": pellet_right,
             "pellet_left": pellet_left,
             "pellet_bottom": pellet_bottom,
-
-            # "pellets": [1 if pellet in pellets_left else 0 for pellet in self.initial_pellets],
         }
 
     def _calculate_rewards(self):
-        reward = (10000 * (self.post_score - self.pre_score)) + 1000
-        if self.game.done:
-            reward = -2000 * (self.pre_pellets * 10)
+        if self.pre_pellets - self.post_pellets == 0:
+            self.live_reward -= 100
+        else:
+            self.live_reward += 1000
+
+        if self.live_reward < -50000:
+            self.live_reward = -10000
+
+        reward = (10000000 * (self.pre_pellets - self.post_pellets)) + self.live_reward
+
+        if self.pre_lives - self.post_lives != 0:
+            reward = -2000 * (self.post_pellets * 100)
+            self.live_reward = 5000
 
         return reward
 
@@ -108,7 +120,7 @@ class PacManEnv(gym.Env):
         self.game.power_left = 4
         self.game.ghosts_eaten = 0
 
-        self.last_eaten = -1
+        self.live_reward = 10000
 
         return self._get_obs()
 
@@ -126,14 +138,18 @@ class PacManEnv(gym.Env):
             raise NotImplementedError()
 
 
-        self.pre_score = self.game.score
         self.pre_pellets = len(self.game.pellets.pelletList)
+        self.pre_score = self.game.score
+        self.pre_lives = self.game.lives
 
         # Take action, update
         pygame.event.post(action_event)
         self.game.update()
 
+        self.post_pellets = len(self.game.pellets.pelletList)
         self.post_score = self.game.score
+        self.post_lives = self.game.lives
+
 
         reward = self._calculate_rewards()
         done = len(self.game.pellets.pelletList) == 0 or self.game.done
@@ -149,15 +165,3 @@ if __name__ == "__main__":
     env = PacManEnv(game, pellet_list)
 
     train_policy_ppo(env)
-
-    # state_dict = env.reset()
-    # input_dim = len(state_to_features(state_dict))
-    # output_dim = env.action_space.n
-    #
-    # policy = Policy(input_dim, output_dim)
-
-    # if os.path.exists("./test.pt"):
-    #     policy.load_state_dict(torch.load("./CPS824.pt", weights_only=True))
-    # train_policy_dqn(env, policy)
-    #
-    # torch.save(policy.state_dict(), './test.pt')

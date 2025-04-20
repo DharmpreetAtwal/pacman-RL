@@ -12,10 +12,10 @@ import gym
 from dqn import state_to_features
 
 # Hyperparameters
-gamma = 0.99  # Discount factor
-lr_actor = 0.001  # Actor learning rate
-lr_critic = 0.001  # Critic learning rate
-clip_ratio = 0.2  # PPO clip ratio
+gamma = 0.95  # Discount factor
+lr_actor = 0.0001  # Actor learning rate
+lr_critic = 0.0001  # Critic learning rate
+clip_ratio = 0.1  # PPO clip ratio
 epochs = 10  # Number of optimization epochs
 batch_size = 64  # Batch size for optimization
 
@@ -77,8 +77,9 @@ def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actio
 
         # Entropy bonus (optional)
         entropy_bonus = torch.mean(policy * torch.log(policy + 1e-10))
+        entropy_coef = 0.05
 
-        total_loss = policy_loss + 0.5 * value_loss - 0.01 * entropy_bonus
+        total_loss = policy_loss + 0.5 * value_loss - (entropy_coef * entropy_bonus)
         return total_loss
 
     def get_advantages(returns, values):
@@ -102,15 +103,15 @@ def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actio
     return loss
 
 
-def train_policy_ppo(env, max_episodes=300):
+def train_policy_ppo(env, max_episodes=500):
     # Initialize actor-critic model and optimizer
     state_dict = env.reset()
     state = state_to_features(state_dict)
     model = ActorCritic(len(state), 4)
     optimizer = optim.Adam(model.parameters(), lr=lr_actor)
 
-    if os.path.exists("./test.pt"):
-        model.load_state_dict(torch.load("./test.pt", weights_only=True))
+    # if os.path.exists("./test2.pt"):
+    #     model.load_state_dict(torch.load("./test2.pt", weights_only=True))
 
     for episode in range(max_episodes):
         states, actions, rewards, values, returns = [], [], [], [], []
@@ -138,7 +139,13 @@ def train_policy_ppo(env, max_episodes=300):
             state = state_to_features(state_dict)
 
             if done:
+                print("---------------------------")
                 print(sum(rewards), rewards)
+                print(len(rewards))
+
+                if len(rewards) < 50:
+                    print("SKIPPED: ", episode)
+                    break
 
                 # Calculate returns
                 returns_batch = []
@@ -168,4 +175,4 @@ def train_policy_ppo(env, max_episodes=300):
 
                 break
 
-    torch.save(model.state_dict(), './test.pt')
+    torch.save(model.state_dict(), './50000.pt')

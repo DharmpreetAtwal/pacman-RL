@@ -151,11 +151,11 @@ def state_to_features(state_dict, normalize=True):
         features.append(pacman_pos[1])
 
     # Process pacman lives
-    # lives = state_dict['pacman_lives']
-    # if normalize:
-    #     features.append(lives / max_lives)
-    # else:
-    #     features.append(lives)
+    lives = state_dict['pacman_lives']
+    if normalize:
+        features.append(lives / max_lives)
+    else:
+        features.append(lives)
 
     # Process ghost positions and modes
     for ghost in ['inky', 'blinky', 'pinky', 'clyde']:

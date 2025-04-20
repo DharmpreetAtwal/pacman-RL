@@ -123,6 +123,7 @@ class NodeGroup(object):
 
     def getNodeFromTiles(self, col, row):
         x, y = self.constructKey(col, row)
+
         if (x, y) in self.nodesLUT.keys():
             return self.nodesLUT[(x, y)]
         return None

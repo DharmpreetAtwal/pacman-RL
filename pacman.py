@@ -61,17 +61,6 @@ class Pacman(Entity):
                     return RIGHT
         return STOP
 
-        # key_pressed = pygame.key.get_pressed()
-        # if key_pressed[K_UP]:
-        #     return UP
-        # if key_pressed[K_DOWN]:
-        #     return DOWN
-        # if key_pressed[K_LEFT]:
-        #     return LEFT
-        # if key_pressed[K_RIGHT]:
-        #     return RIGHT
-        # return STOP
-
     def eatPellets(self, pelletList):
         for pellet in pelletList:
             if self.collideCheck(pellet):
