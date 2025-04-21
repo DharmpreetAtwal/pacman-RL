@@ -9,6 +9,8 @@ import torch
 from gym.vector.utils import spaces
 from pygame import KEYDOWN, K_UP, K_RIGHT, K_DOWN, K_LEFT
 
+import pyautogui
+
 from dqn import train_policy_dqn, state_to_features, Policy
 from pacman import Pacman
 from ppo import train_policy_ppo
@@ -77,16 +79,20 @@ class PacManEnv(gym.Env):
             "pacman_position": (int(self.game.pacman.position.x), int(self.game.pacman.position.y)),
             "pacman_lives": self.game.lives,
 
-            "inky_position": (int(self.game.ghosts.inky.position.x), int(self.game.ghosts.inky.position.y)),
+            "inky_position": (int(self.game.ghosts.inky.position.x - self.game.pacman.position.x),
+                              int(self.game.ghosts.inky.position.y) - int(self.game.pacman.position.y)),
             "inky_mode": self.game.ghosts.inky.mode.current,
 
-            "blinky_position": (int(self.game.ghosts.blinky.position.x), int(self.game.ghosts.blinky.position.y)),
+            "blinky_position": (int(self.game.ghosts.blinky.position.x - self.game.pacman.position.x),
+                                int(self.game.ghosts.blinky.position.y) - int(self.game.pacman.position.y)),
             "blinky_mode": self.game.ghosts.blinky.mode.current,
 
-            "pinky_position": (int(self.game.ghosts.pinky.position.x), int(self.game.ghosts.blinky.position.y)),
+            "pinky_position": (int(self.game.ghosts.pinky.position.x - self.game.pacman.position.x),
+                               int(self.game.ghosts.blinky.position.y) - int(self.game.pacman.position.y)),
             "pinky_mode": self.game.ghosts.pinky.mode.current,
 
-            "clyde_position": (int(self.game.ghosts.clyde.position.x), int(self.game.ghosts.clyde.position.y)),
+            "clyde_position": (int(self.game.ghosts.clyde.position.x - self.game.pacman.position.x),
+                               int(self.game.ghosts.clyde.position.y) - int(self.game.pacman.position.y)),
             "clyde_mode": self.game.ghosts.clyde.mode.current,
 
             "pellet_above": pellet_above,
@@ -102,12 +108,14 @@ class PacManEnv(gym.Env):
             self.live_reward += 1000
 
         if self.live_reward < -50000:
-            self.live_reward = -10000
+            self.live_reward = -50000
 
         reward = (10000000 * (self.pre_pellets - self.post_pellets)) + self.live_reward
 
         if self.pre_lives - self.post_lives != 0:
-            reward = -2000 * (self.post_pellets * 100)
+            # reward = -1 * abs(self.live_reward) * (self.post_pellets * 10)
+            reward = -1 * (self.post_pellets * 1000000)
+
             self.live_reward = 5000
 
         return reward
@@ -164,4 +172,5 @@ if __name__ == "__main__":
     pellet_list = [(pellet.position.x, pellet.position.y) for pellet in game.pellets.pelletList]
     env = PacManEnv(game, pellet_list)
 
+    # train_policy_dqn(env)
     train_policy_ppo(env)

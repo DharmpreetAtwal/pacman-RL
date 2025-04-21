@@ -119,10 +119,8 @@ class GameController(object):
         self.nodes.denyAccessList(12, 26, UP, self.ghosts)
         self.nodes.denyAccessList(15, 26, UP, self.ghosts)
 
-
-
     def update(self):
-        dt = self.clock.tick(60) / 200.0
+        dt = self.clock.tick(100) / 200.0
         self.textgroup.update(dt)
         self.pellets.update(dt)
         if not self.pause.paused:

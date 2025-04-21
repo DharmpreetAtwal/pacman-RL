@@ -64,7 +64,11 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-def train_policy_dqn(env, policy, num_episodes=1, lr=0.001):
+def train_policy_dqn(env, num_episodes=100, lr=0.0001):
+    state = env.reset()
+    state = state_to_features(state)
+    policy = Policy(len(state), env.action_space.n)
+
     target_network = Policy(len(state_to_features(env.reset())), env.action_space.n)
     target_network.load_state_dict(policy.state_dict())
     replay_buffer = ReplayBuffer()
@@ -96,7 +100,7 @@ def train_policy_dqn(env, policy, num_episodes=1, lr=0.001):
             next_state = state_to_features(next_state_dict)
 
             total_reward += reward
-            print(reward)
+            # print(reward)
 
             # Store in replay buffer
             replay_buffer.push(state, action, reward / 1000.0, next_state, int(done))
@@ -136,7 +140,7 @@ def state_to_features(state_dict, normalize=True):
     # Define normalization constants
     max_pos_x, max_pos_y = 512, 512
     max_lives = 5
-    max_mode = 1
+    max_mode = 3
 
     # Initialize feature vector
     features = []
@@ -161,8 +165,8 @@ def state_to_features(state_dict, normalize=True):
     for ghost in ['inky', 'blinky', 'pinky', 'clyde']:
         ghost_pos = state_dict[f'{ghost}_position']
         if normalize:
-            features.append(ghost_pos[0] / max_pos_x)
-            features.append(ghost_pos[1] / max_pos_y)
+            features.append((ghost_pos[0] + 512) / (max_pos_x + 512))
+            features.append((ghost_pos[1] + 512) / (max_pos_y + 512))
         else:
             features.append(ghost_pos[0])
             features.append(ghost_pos[1])
@@ -173,8 +177,9 @@ def state_to_features(state_dict, normalize=True):
         else:
             features.append(ghost_mode)
 
-    # features.extend([state_dict["pellet_above"], state_dict["pellet_bottom"],
-    #                  state_dict["pellet_left"], state_dict["pellet_right"],])
-    # features.extend(state_dict['pellets'])
+    features.extend([state_dict["pellet_above"], state_dict["pellet_bottom"],
+                     state_dict["pellet_left"], state_dict["pellet_right"],])
 
+    # print(features)
     return features
+

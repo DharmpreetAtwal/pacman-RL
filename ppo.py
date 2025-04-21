@@ -103,15 +103,15 @@ def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actio
     return loss
 
 
-def train_policy_ppo(env, max_episodes=500):
+def train_policy_ppo(env, max_episodes=100):
     # Initialize actor-critic model and optimizer
     state_dict = env.reset()
     state = state_to_features(state_dict)
     model = ActorCritic(len(state), 4)
     optimizer = optim.Adam(model.parameters(), lr=lr_actor)
 
-    # if os.path.exists("./test2.pt"):
-    #     model.load_state_dict(torch.load("./test2.pt", weights_only=True))
+    if os.path.exists("./ppo.pt"):
+        model.load_state_dict(torch.load("./ppo.pt", weights_only=True))
 
     for episode in range(max_episodes):
         states, actions, rewards, values, returns = [], [], [], [], []
@@ -175,4 +175,4 @@ def train_policy_ppo(env, max_episodes=500):
 
                 break
 
-    torch.save(model.state_dict(), './50000.pt')
+    torch.save(model.state_dict(), './ppo.pt')
