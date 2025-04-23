@@ -4,12 +4,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from pyexpat import features
+from PIL import Image
+
 from torch.distributions import Categorical
 import numpy as np
-import gym
+from pprint import pprint
 
 from dqn import state_to_features
+from screen import capture_game
 
 # Hyperparameters
 gamma = 0.95  # Discount factor
@@ -21,10 +23,19 @@ batch_size = 64  # Batch size for optimization
 
 # Actor and Critic networks
 class ActorCritic(nn.Module):
-    def __init__(self, state_size, action_size):
+    def __init__(self, action_size, input_shape):
         super(ActorCritic, self).__init__()
 
-        self.shared_input = nn.Linear(state_size, 512)
+        # Add flatten layer to handle image inputs
+        self.flatten = nn.Flatten()
+
+        # If input_shape is provided, calculate flattened size
+        self.input_shape = input_shape
+
+        # For image inputs: channels, height, width
+        flattened_size = input_shape[0] * input_shape[1] * input_shape[2]
+
+        self.shared_input = nn.Linear(flattened_size, 512)
 
         self.actor_1 = nn.Linear(512, 1024)
         self.actor_2 = nn.Linear(1024, 2048)
@@ -38,9 +49,9 @@ class ActorCritic(nn.Module):
 
         self.dropout = nn.Dropout(p=0.2)
 
-
     def forward(self, state):
-        x = F.relu(self.shared_input(state))
+        x = self.flatten(state)
+        x = F.relu(self.shared_input(x))
 
         a = F.relu(self.actor_1(x))
         a = self.dropout(a)
@@ -57,6 +68,44 @@ class ActorCritic(nn.Module):
         value = self.value(c)
 
         return logits, value
+
+# class ActorCritic(nn.Module):
+#     def __init__(self, state_size, action_size):
+#         super(ActorCritic, self).__init__()
+#
+#         self.shared_input = nn.Linear(state_size, 512)
+#
+#         self.actor_1 = nn.Linear(512, 1024)
+#         self.actor_2 = nn.Linear(1024, 2048)
+#         self.actor_3 = nn.Linear(2048, 2048)
+#         self.policy_logits = nn.Linear(2048, action_size)
+#
+#         self.critic_1 = nn.Linear(512, 1024)
+#         self.critic_2 = nn.Linear(1024, 2048)
+#         self.critic_3 = nn.Linear(2048, 2048)
+#         self.value = nn.Linear(2048, 1)
+#
+#         self.dropout = nn.Dropout(p=0.2)
+#
+#
+#     def forward(self, state):
+#         x = F.relu(self.shared_input(state))
+#
+#         a = F.relu(self.actor_1(x))
+#         a = self.dropout(a)
+#         a = F.relu(self.actor_2(a))
+#         a = self.dropout(a)
+#         a = F.relu(self.actor_3(a))
+#         logits = self.policy_logits(a)
+#
+#         c = F.relu(self.critic_1(x))
+#         c = self.dropout(c)
+#         c = F.relu(self.critic_2(c))
+#         c = self.dropout(c)
+#         c = F.relu(self.critic_3(c))
+#         value = self.value(c)
+#
+#         return logits, value
 
 # PPO algorithm
 def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actions, returns):
@@ -77,7 +126,7 @@ def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actio
 
         # Entropy bonus (optional)
         entropy_bonus = torch.mean(policy * torch.log(policy + 1e-10))
-        entropy_coef = 0.05
+        entropy_coef = 0.2
 
         total_loss = policy_loss + 0.5 * value_loss - (entropy_coef * entropy_bonus)
         return total_loss
@@ -103,20 +152,15 @@ def ppo_loss(model, optimizer, old_logits, old_values, advantages, states, actio
     return loss
 
 
-def train_policy_ppo(env, max_episodes=100):
-    # Initialize actor-critic model and optimizer
-    state_dict = env.reset()
-    state = state_to_features(state_dict)
-    model = ActorCritic(len(state), 4)
-    optimizer = optim.Adam(model.parameters(), lr=lr_actor)
+def train_policy_ppo(env, x, y, width, height,  max_episodes=20):
+    state = env.reset()
 
-    if os.path.exists("./ppo.pt"):
-        model.load_state_dict(torch.load("./ppo.pt", weights_only=True))
+    model = ActorCritic(4, state.shape)
+    optimizer = optim.Adam(model.parameters(), lr=lr_actor)
 
     for episode in range(max_episodes):
         states, actions, rewards, values, returns = [], [], [], [], []
-        state_dict = env.reset()
-        state = state_to_features(state_dict)
+        state = env.reset()
 
         done = False
 
@@ -135,10 +179,13 @@ def train_policy_ppo(env, max_episodes=100):
             rewards.append(reward)
             values.append(value.item())
 
-            state_dict = next_state
-            state = state_to_features(state_dict)
+            state = next_state
 
             if done:
+                # img = capture_game(x, y, width, height)
+                # resized_pil = Image.fromarray(img)
+                # resized_pil.show()
+
                 print("---------------------------")
                 print(sum(rewards), rewards)
                 print(len(rewards))
@@ -176,3 +223,5 @@ def train_policy_ppo(env, max_episodes=100):
                 break
 
     torch.save(model.state_dict(), './ppo.pt')
+
+
